@@ -12,6 +12,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.UUID;
 
 
 @Service
@@ -99,5 +100,17 @@ public class FoodMapServiceImpl implements FoodMapService {
         } else {
             return new Response<>(0, noContent, null);
         }
+    }
+
+    @Override
+    public Response deleteFoodStore(String foodStoreId, HttpHeaders headers) {
+	foodStoreRepository.deleteById(UUID.fromString(foodStoreId));
+	return new Response<>(1, "Delete Success", foodStoreId);
+    }
+
+    @Override
+    public Response deleteTrainFood(String trainFoodId, HttpHeaders headers) {
+	trainFoodRepository.deleteById(UUID.fromString(trainFoodId));
+	return new Response<>(1, "Delete Success", trainFoodId);
     }
 }

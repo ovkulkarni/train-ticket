@@ -24,4 +24,8 @@ public interface FoodMapService {
     Response listTrainFoodByTripId(String tripId, HttpHeaders headers);
 
     Response getFoodStoresByStationIds(List<String> stationIds);
+
+    Response deleteFoodStore(String foodStoreId, HttpHeaders headers);
+
+    Response deleteTrainFood(String trainFoodId, HttpHeaders headers);
 }

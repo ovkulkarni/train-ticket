@@ -51,20 +51,20 @@ public class TokenServiceImpl implements TokenService {
         String verifyCode = dto.getVerificationCode();
         LOGGER.info("LOGIN USER :" + username + " __ " + password + " __ " + verifyCode);
 
-        if (!StringUtils.isEmpty(verifyCode)) {
-            HttpEntity requestEntity = new HttpEntity(headers);
-            ResponseEntity<Boolean> re = restTemplate.exchange(
-                    "http://ts-verification-code-service:15678/api/v1/verifycode/verify/" + verifyCode,
-                    HttpMethod.GET,
-                    requestEntity,
-                    Boolean.class);
-            boolean id = re.getBody();
+        // if (!StringUtils.isEmpty(verifyCode)) {
+        //     HttpEntity requestEntity = new HttpEntity(headers);
+        //     ResponseEntity<Boolean> re = restTemplate.exchange(
+        //             "http://ts-verification-code-service:15678/api/v1/verifycode/verify/" + verifyCode,
+        //             HttpMethod.GET,
+        //             requestEntity,
+        //             Boolean.class);
+        //     boolean id = re.getBody();
 
-            // failed code
-            if (!id) {
-                return new Response<>(0, "Verification failed.", null);
-            }
-        }
+        //     // failed code
+        //     if (!id) {
+        //         return new Response<>(0, "Verification failed.", null);
+        //     }
+        // }
 
         // verify username and password
         UsernamePasswordAuthenticationToken upat = new UsernamePasswordAuthenticationToken(username, password);

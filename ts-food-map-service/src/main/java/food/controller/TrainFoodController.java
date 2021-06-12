@@ -1,6 +1,7 @@
 package food.controller;
 
 import food.service.FoodMapService;
+import food.entity.TrainFood;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,5 +37,20 @@ public class TrainFoodController {
     public HttpEntity getTrainFoodOfTrip(@PathVariable String tripId, @RequestHeader HttpHeaders headers) {
         TrainFoodController.LOGGER.info("[Food Map Service][Get TrainFoods By TripId]");
         return ok(foodMapService.listTrainFoodByTripId(tripId, headers));
+    }
+
+    @CrossOrigin(origins = "*")
+    @PostMapping(path = "/trainfoods/create")
+    public HttpEntity create(@RequestBody TrainFood tf, @RequestHeader HttpHeaders headers) {
+        TrainFoodController.LOGGER.info("[Food Map Service][Create TrainFood] Create TrainFood form {}", tf);
+        return ok(foodMapService.createTrainFood(tf, headers));
+    }
+
+    @CrossOrigin(origins = "*")
+    @DeleteMapping(path = "/trainfoods/delete/{trainFoodId}")
+    public HttpEntity delete(@PathVariable String trainFoodId, @RequestHeader HttpHeaders headers) {
+        TrainFoodController.LOGGER.info("[Food Map Service][Delete TrainFood] TrainStore Id: {}", trainFoodId);
+        // Order
+        return ok(foodMapService.deleteTrainFood(trainFoodId, headers));
     }
 }

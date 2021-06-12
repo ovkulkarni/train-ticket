@@ -77,6 +77,15 @@ public class OrderController {
         return ok(orderService.queryAlreadySoldOrders(travelDate, trainNumber, headers));
     }
 
+
+    @PostMapping(value = "/order/query_already_sold_orders")
+    public HttpEntity calculateSoldTicket2(@RequestBody Seat seatRequest, @RequestHeader HttpHeaders headers) {
+        OrderController.LOGGER.info("[Order Other Service2][Calculate Sold Tickets] Date: {} TrainNumber: {}", seatRequest.getTravelDate(), seatRequest.getTrainNumber());
+        return ok(orderService.queryAlreadySoldOrders(seatRequest.getTravelDate(), seatRequest.getTrainNumber(), headers));
+    }
+
+
+
     @CrossOrigin(origins = "*")
     @GetMapping(path = "/order/price/{orderId}")
     public HttpEntity getOrderPrice(@PathVariable String orderId, @RequestHeader HttpHeaders headers) {
