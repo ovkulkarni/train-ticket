@@ -5,7 +5,7 @@ import subprocess
 import datetime
 
 def get_ip_map(network_id):
-    bashCommand = ["docker", "network", "inspect", "-f","\'{{json .Containers}}\'", network_id]
+    bashCommand = ["docker", "network", "inspect", "-f","\'{{json .Containers}}\'", "train-ticket_my-network"]
     process = subprocess.run(bashCommand, stdout=subprocess.PIPE)
     output = process.stdout.decode('utf-8')
     data = json.loads(output[1:-2])

@@ -40,7 +40,25 @@ public class OrderServiceImpl implements OrderService {
         if (list != null && !list.isEmpty()) {
             Set ticketSet = new HashSet();
             for (Order tempOrder : list) {
-                ticketSet.add(new Ticket(Integer.parseInt(tempOrder.getSeatNumber()),
+                int seatNumber = -1;
+                String seatString = tempOrder.getSeatNumber();
+                while (seatNumber < 0) {
+                    try {
+                        seatNumber = Integer.parseInt(seatString);
+                        if (seatNumber < 0) {
+                            seatString = seatString.substring(1);
+                            if (seatString.length() == 0) {
+                                seatNumber = (int) (Math.random() * 50);
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        seatString = seatString.substring(1);
+                        if (seatString.length() == 0) {
+                            seatNumber = (int) (Math.random() * 50);
+                        }
+                    }
+                }
+                ticketSet.add(new Ticket(seatNumber,
                         tempOrder.getFrom(), tempOrder.getTo()));
             }
             LeftTicketInfo leftTicketInfo = new LeftTicketInfo();
@@ -103,17 +121,18 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Response<ArrayList<Order>> queryOrders(OrderInfo qi, String accountId, HttpHeaders headers) {
-        //1.Get all orders of the user
+        // 1.Get all orders of the user
         ArrayList<Order> list = orderRepository.findByAccountId(UUID.fromString(accountId));
-        OrderServiceImpl.LOGGER.info("[Order Service][Query Order][Step 1] Get Orders Number of Account: {}", list.size());
-        //2.Check is these orders fit the requirement/
+        OrderServiceImpl.LOGGER.info("[Order Service][Query Order][Step 1] Get Orders Number of Account: {}",
+                list.size());
+        // 2.Check is these orders fit the requirement/
         if (qi.isEnableStateQuery() || qi.isEnableBoughtDateQuery() || qi.isEnableTravelDateQuery()) {
             ArrayList<Order> finalList = new ArrayList<>();
             for (Order tempOrder : list) {
                 boolean statePassFlag = false;
                 boolean boughtDatePassFlag = false;
                 boolean travelDatePassFlag = false;
-                //3.Check order state requirement.
+                // 3.Check order state requirement.
                 if (qi.isEnableStateQuery()) {
                     if (tempOrder.getStatus() != qi.getState()) {
                         statePassFlag = false;
@@ -124,7 +143,7 @@ public class OrderServiceImpl implements OrderService {
                     statePassFlag = true;
                 }
                 OrderServiceImpl.LOGGER.info("[Order Service][Query Order][Step 2][Check Status Fits End]");
-                //4.Check order travel date requirement.
+                // 4.Check order travel date requirement.
                 if (qi.isEnableTravelDateQuery()) {
                     if (tempOrder.getTravelDate().before(qi.getTravelDateEnd()) &&
                             tempOrder.getTravelDate().after(qi.getBoughtDateStart())) {
@@ -136,7 +155,7 @@ public class OrderServiceImpl implements OrderService {
                     travelDatePassFlag = true;
                 }
                 OrderServiceImpl.LOGGER.info("[Order Service][Query Order][Step 2][Check Travel Date End]");
-                //5.Check order bought date requirement.
+                // 5.Check order bought date requirement.
                 if (qi.isEnableBoughtDateQuery()) {
                     if (tempOrder.getBoughtDate().before(qi.getBoughtDateEnd()) &&
                             tempOrder.getBoughtDate().after(qi.getBoughtDateStart())) {
@@ -148,7 +167,7 @@ public class OrderServiceImpl implements OrderService {
                     boughtDatePassFlag = true;
                 }
                 OrderServiceImpl.LOGGER.info("[Order Service][Query Order][Step 2][Check Bought Date End]");
-                //6.check if all requirement fits.
+                // 6.check if all requirement fits.
                 if (statePassFlag && boughtDatePassFlag && travelDatePassFlag) {
                     finalList.add(tempOrder);
                 }
@@ -164,7 +183,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Response queryOrdersForRefresh(OrderInfo qi, String accountId, HttpHeaders headers) {
-        ArrayList<Order> orders =   queryOrders(qi, accountId, headers).getData();
+        ArrayList<Order> orders = queryOrders(qi, accountId, headers).getData();
         ArrayList<String> stationIds = new ArrayList<>();
         for (Order order : orders) {
             stationIds.add(order.getFrom());
@@ -265,7 +284,8 @@ public class OrderServiceImpl implements OrderService {
             } else if (order.getSeatClass() == SeatClass.HIGHSOFTBED.getCode()) {
                 cstr.setHighSoftBed(cstr.getHighSoftBed() + 1);
             } else {
-                OrderServiceImpl.LOGGER.info("[Order Service][Calculate Sold Tickets] Seat class not exists. Order ID: {}", order.getId());
+                OrderServiceImpl.LOGGER.info(
+                        "[Order Service][Calculate Sold Tickets] Seat class not exists. Order ID: {}", order.getId());
             }
         }
         return new Response<>(1, success, cstr);
@@ -421,4 +441,3 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 }
-

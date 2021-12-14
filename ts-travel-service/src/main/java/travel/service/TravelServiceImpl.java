@@ -1,5 +1,6 @@
 package travel.service;
 
+import edu.fudan.common.util.ConsistencyCheckedCache;
 import edu.fudan.common.util.JsonUtils;
 import edu.fudan.common.util.Response;
 import org.slf4j.Logger;
@@ -16,6 +17,8 @@ import travel.entity.*;
 import travel.repository.TripRepository;
 
 import java.util.*;
+import java.util.AbstractMap.SimpleImmutableEntry;
+import java.util.function.BiFunction;
 
 /**
  * @author fdse
@@ -30,6 +33,98 @@ public class TravelServiceImpl implements TravelService {
     private RestTemplate restTemplate;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(TravelServiceImpl.class);
+
+    private BiFunction<String, HttpHeaders, TrainType> trainTypeQuery = (trainTypeId, headers) -> {
+        HttpEntity requestEntity = new HttpEntity(headers);
+        ResponseEntity<Response<TrainType>> re = restTemplate.exchange(
+                "http://ts-train-service:14567/api/v1/trainservice/trains/" + trainTypeId, HttpMethod.GET,
+                requestEntity, new ParameterizedTypeReference<Response<TrainType>>() {
+                });
+
+        return re.getBody().getData();
+    };
+
+    private BiFunction<String, HttpHeaders, String> stationIdQuery = (stationName, headers) -> {
+        HttpEntity requestEntity = new HttpEntity(headers);
+        ResponseEntity<Response<String>> re = restTemplate.exchange(
+                "http://ts-ticketinfo-service:15681/api/v1/ticketinfoservice/ticketinfo/" + stationName, HttpMethod.GET,
+                requestEntity, new ParameterizedTypeReference<Response<String>>() {
+                });
+        TravelServiceImpl.LOGGER.info("Query for Station id is: {}", re.getBody().toString());
+
+        return re.getBody().getData();
+    };
+
+    private BiFunction<String, HttpHeaders, Route> routeQuery = (routeId, headers) -> {
+        TravelServiceImpl.LOGGER.info("[Travel Service][Get Route By Id] Route ID：{}", routeId);
+        HttpEntity requestEntity = new HttpEntity(headers);
+        ResponseEntity<Response> re = restTemplate.exchange(
+                "http://ts-route-service:11178/api/v1/routeservice/routes/" + routeId,
+                HttpMethod.GET,
+                requestEntity,
+                Response.class);
+        Response routeRes = re.getBody();
+
+        Route route1 = new Route();
+        TravelServiceImpl.LOGGER.info("Routes Response is : {}", routeRes.toString());
+        if (routeRes.getStatus() == 1) {
+            route1 = JsonUtils.conveterObject(routeRes.getData(), Route.class);
+            TravelServiceImpl.LOGGER.info("Route is: {}", route1.toString());
+        }
+        return route1;
+    };
+
+    private BiFunction<Travel, HttpHeaders, TravelResult> travelResultQuery = (query, headers) -> {
+        HttpEntity requestEntity = new HttpEntity(query, headers);
+        ResponseEntity<Response> re = restTemplate.exchange(
+                "http://ts-ticketinfo-service:15681/api/v1/ticketinfoservice/ticketinfo",
+                HttpMethod.POST,
+                requestEntity,
+                Response.class);
+        TravelServiceImpl.LOGGER.info("Ts-basic-service ticket info is: {}", re.getBody().toString());
+        return JsonUtils.conveterObject(re.getBody().getData(), TravelResult.class);
+    };
+
+    private BiFunction<SimpleImmutableEntry<Trip, Date>, HttpHeaders, Response<SoldTicket>> soldTicketQuery = (entry,
+            headers) -> {
+        HttpEntity requestEntity = new HttpEntity(headers);
+        ResponseEntity<Response<SoldTicket>> re2 = restTemplate.exchange(
+                "http://ts-order-service:12031/api/v1/orderservice/order/" + entry.getValue() + "/"
+                        + entry.getKey().getTripId().toString(),
+                HttpMethod.GET, requestEntity, new ParameterizedTypeReference<Response<SoldTicket>>() {
+                });
+
+        return re2.getBody();
+    };
+
+    private BiFunction<Seat, HttpHeaders, Response<Integer>> restTicketQuery = (seatRequest, headers) -> {
+        HttpEntity requestEntity = new HttpEntity(seatRequest, headers);
+        ResponseEntity<Response<Integer>> re = restTemplate.exchange(
+                "http://ts-seat-service:18898/api/v1/seatservice/seats/left_tickets",
+                HttpMethod.POST,
+                requestEntity,
+                new ParameterizedTypeReference<Response<Integer>>() {
+                });
+        return re.getBody();
+    };
+
+    private ConsistencyCheckedCache<String, HttpHeaders, TrainType> trainTypeCache = new ConsistencyCheckedCache<String, HttpHeaders, TrainType>(
+            "trainTypeCache", 100, trainTypeQuery);
+
+    private ConsistencyCheckedCache<String, HttpHeaders, String> stationIdCache = new ConsistencyCheckedCache<String, HttpHeaders, String>(
+            "stationIdCache", 100, stationIdQuery);
+
+    private ConsistencyCheckedCache<String, HttpHeaders, Route> routeCache = new ConsistencyCheckedCache<String, HttpHeaders, Route>(
+            "routeCache", 100, routeQuery);
+
+    private ConsistencyCheckedCache<Travel, HttpHeaders, TravelResult> travelResultCache = new ConsistencyCheckedCache<Travel, HttpHeaders, TravelResult>(
+            "travelResultCache", 100, travelResultQuery);
+
+    private ConsistencyCheckedCache<SimpleImmutableEntry<Trip, Date>, HttpHeaders, Response<SoldTicket>> soldTicketCache = new ConsistencyCheckedCache<SimpleImmutableEntry<Trip, Date>, HttpHeaders, Response<SoldTicket>>(
+            "soldTicketCache", 100, soldTicketQuery);
+
+    private ConsistencyCheckedCache<Seat, HttpHeaders, Response<Integer>> restTicketCache = new ConsistencyCheckedCache<Seat, HttpHeaders, Response<Integer>>(
+            "restTicketCache", 100, restTicketQuery);
 
     String success = "Success";
     String noContent = "No Content";
@@ -97,7 +192,6 @@ public class TravelServiceImpl implements TravelService {
         }
     }
 
-
     @Override
     public Response retrieve(String tripId, HttpHeaders headers) {
         TripId ti = new TripId(tripId);
@@ -137,26 +231,31 @@ public class TravelServiceImpl implements TravelService {
     @Override
     public Response query(TripInfo info, HttpHeaders headers) {
 
-        //Gets the start and arrival stations of the train number to query. The originating and arriving stations received here are both station names, so two requests need to be sent to convert to station ids
+        // Gets the start and arrival stations of the train number to query. The
+        // originating and arriving stations received here are both station names, so
+        // two requests need to be sent to convert to station ids
         String startingPlaceName = info.getStartingPlace();
         String endPlaceName = info.getEndPlace();
         String startingPlaceId = queryForStationId(startingPlaceName, headers);
         String endPlaceId = queryForStationId(endPlaceName, headers);
 
-        //This is the final result
+        // This is the final result
         List<TripResponse> list = new ArrayList<>();
 
-        //Check all train info
+        // Check all train info
         List<Trip> allTripList = repository.findAll();
         for (Trip tempTrip : allTripList) {
-            //Get the detailed route list of this train
+            // Get the detailed route list of this train
             Route tempRoute = getRouteByRouteId(tempTrip.getRouteId(), headers);
-            //Check the route list for this train. Check that the required start and arrival stations are in the list of stops that are not on the route, and check that the location of the start station is before the stop
-            //Trains that meet the above criteria are added to the return list
+            // Check the route list for this train. Check that the required start and
+            // arrival stations are in the list of stops that are not on the route, and
+            // check that the location of the start station is before the stop
+            // Trains that meet the above criteria are added to the return list
             if (tempRoute.getStations().contains(startingPlaceId) &&
                     tempRoute.getStations().contains(endPlaceId) &&
                     tempRoute.getStations().indexOf(startingPlaceId) < tempRoute.getStations().indexOf(endPlaceId)) {
-                TripResponse response = getTickets(tempTrip, tempRoute, startingPlaceId, endPlaceId, startingPlaceName, endPlaceName, info.getDepartureTime(), headers);
+                TripResponse response = getTickets(tempTrip, tempRoute, startingPlaceId, endPlaceId, startingPlaceName,
+                        endPlaceName, info.getDepartureTime(), headers);
                 if (response == null) {
                     return new Response<>(0, "No Trip info content", null);
                 }
@@ -181,7 +280,8 @@ public class TravelServiceImpl implements TravelService {
             String endPlaceId = queryForStationId(endPlaceName, headers);
             Route tempRoute = getRouteByRouteId(trip.getRouteId(), headers);
 
-            TripResponse tripResponse = getTickets(trip, tempRoute, startingPlaceId, endPlaceId, gtdi.getFrom(), gtdi.getTo(), gtdi.getTravelDate(), headers);
+            TripResponse tripResponse = getTickets(trip, tempRoute, startingPlaceId, endPlaceId, gtdi.getFrom(),
+                    gtdi.getTo(), gtdi.getTravelDate(), headers);
             if (tripResponse == null) {
                 gtdr.setTripResponse(null);
                 gtdr.setTrip(null);
@@ -193,9 +293,10 @@ public class TravelServiceImpl implements TravelService {
         return new Response<>(1, success, gtdr);
     }
 
-    private TripResponse getTickets(Trip trip, Route route, String startingPlaceId, String endPlaceId, String startingPlaceName, String endPlaceName, Date departureTime, HttpHeaders headers) {
+    private TripResponse getTickets(Trip trip, Route route, String startingPlaceId, String endPlaceId,
+            String startingPlaceName, String endPlaceName, Date departureTime, HttpHeaders headers) {
 
-        //Determine if the date checked is the same day and after
+        // Determine if the date checked is the same day and after
         if (!afterToday(departureTime)) {
             return null;
         }
@@ -206,29 +307,16 @@ public class TravelServiceImpl implements TravelService {
         query.setEndPlace(endPlaceName);
         query.setDepartureTime(departureTime);
 
-        HttpEntity requestEntity = new HttpEntity(query, headers);
-        ResponseEntity<Response> re = restTemplate.exchange(
-                "http://ts-ticketinfo-service:15681/api/v1/ticketinfoservice/ticketinfo",
-                HttpMethod.POST,
-                requestEntity,
-                Response.class);
-        TravelServiceImpl.LOGGER.info("Ts-basic-service ticket info is: {}", re.getBody().toString());
-        TravelResult resultForTravel = JsonUtils.conveterObject(re.getBody().getData(), TravelResult.class);
+        TravelResult resultForTravel = travelResultCache.getOrInsert(query, headers);
 
-        //Ticket order _ high-speed train (number of tickets purchased)
-        requestEntity = new HttpEntity(headers);
-        ResponseEntity<Response<SoldTicket>> re2 = restTemplate.exchange(
-                "http://ts-order-service:12031/api/v1/orderservice/order/" + departureTime + "/" + trip.getTripId().toString(),
-                HttpMethod.GET,
-                requestEntity,
-                new ParameterizedTypeReference<Response<SoldTicket>>() {
-                });
+        // Ticket order _ high-speed train (number of tickets purchased)
+        Response<SoldTicket> result = soldTicketCache.getOrInsert(
+                new SimpleImmutableEntry<Trip, Date>(trip, departureTime),
+                headers);
 
-        Response<SoldTicket> result = re2.getBody();
         TravelServiceImpl.LOGGER.info("Order info is: {}", result.toString());
 
-
-        //Set the returned ticket information
+        // Set the returned ticket information
         TripResponse response = new TripResponse();
         response.setConfortClass(50);
         response.setEconomyClass(50);
@@ -244,13 +332,14 @@ public class TravelServiceImpl implements TravelService {
         response.setStartingStation(startingPlaceName);
         response.setTerminalStation(endPlaceName);
 
-        //Calculate the distance from the starting point
+        // Calculate the distance from the starting point
         int indexStart = route.getStations().indexOf(startingPlaceId);
         int indexEnd = route.getStations().indexOf(endPlaceId);
         int distanceStart = route.getDistances().get(indexStart) - route.getDistances().get(0);
         int distanceEnd = route.getDistances().get(indexEnd) - route.getDistances().get(0);
         TrainType trainType = getTrainType(trip.getTrainTypeId(), headers);
-        //Train running time is calculated according to the average running speed of the train
+        // Train running time is calculated according to the average running speed of
+        // the train
         int minutesStart = 60 * distanceStart / trainType.getAverageSpeed();
         int minutesEnd = 60 * distanceEnd / trainType.getAverageSpeed();
 
@@ -258,7 +347,8 @@ public class TravelServiceImpl implements TravelService {
         calendarStart.setTime(trip.getStartingTime());
         calendarStart.add(Calendar.MINUTE, minutesStart);
         response.setStartingTime(calendarStart.getTime());
-        TravelServiceImpl.LOGGER.info("[Train Service] calculate time：{}  time: {}", minutesStart, calendarStart.getTime());
+        TravelServiceImpl.LOGGER.info("[Train Service] calculate time：{}  time: {}", minutesStart,
+                calendarStart.getTime());
 
         Calendar calendarEnd = Calendar.getInstance();
         calendarEnd.setTime(trip.getStartingTime());
@@ -297,7 +387,7 @@ public class TravelServiceImpl implements TravelService {
             if (calDateA.get(Calendar.MONTH) > calDateB.get(Calendar.MONTH)) {
                 return false;
             } else if (calDateA.get(Calendar.MONTH) == calDateB.get(Calendar.MONTH)) {
-                return calDateA.get(Calendar.DAY_OF_MONTH) <= calDateB.get(Calendar.DAY_OF_MONTH) ;
+                return calDateA.get(Calendar.DAY_OF_MONTH) <= calDateB.get(Calendar.DAY_OF_MONTH);
             } else {
                 return true;
             }
@@ -307,50 +397,19 @@ public class TravelServiceImpl implements TravelService {
     }
 
     private TrainType getTrainType(String trainTypeId, HttpHeaders headers) {
-        HttpEntity requestEntity = new HttpEntity(headers);
-        ResponseEntity<Response<TrainType>> re = restTemplate.exchange(
-                "http://ts-train-service:14567/api/v1/trainservice/trains/" + trainTypeId,
-                HttpMethod.GET,
-                requestEntity,
-                new ParameterizedTypeReference<Response<TrainType>>() {
-                });
-
-        return re.getBody().getData();
+        return trainTypeCache.getOrInsert(trainTypeId, headers);
     }
 
     private String queryForStationId(String stationName, HttpHeaders headers) {
-        HttpEntity requestEntity = new HttpEntity(headers);
-        ResponseEntity<Response<String>> re = restTemplate.exchange(
-                "http://ts-ticketinfo-service:15681/api/v1/ticketinfoservice/ticketinfo/" + stationName,
-                HttpMethod.GET,
-                requestEntity,
-                new ParameterizedTypeReference<Response<String>>() {
-                });
-        TravelServiceImpl.LOGGER.info("Query for Station id is: {}", re.getBody().toString());
-
-        return re.getBody().getData();
+        return stationIdCache.getOrInsert(stationName, headers);
     }
 
     private Route getRouteByRouteId(String routeId, HttpHeaders headers) {
-        TravelServiceImpl.LOGGER.info("[Travel Service][Get Route By Id] Route ID：{}", routeId);
-        HttpEntity requestEntity = new HttpEntity(headers);
-        ResponseEntity<Response> re = restTemplate.exchange(
-                "http://ts-route-service:11178/api/v1/routeservice/routes/" + routeId,
-                HttpMethod.GET,
-                requestEntity,
-                Response.class);
-        Response routeRes = re.getBody();
-
-        Route route1 = new Route();
-        TravelServiceImpl.LOGGER.info("Routes Response is : {}", routeRes.toString());
-        if (routeRes.getStatus() == 1) {
-            route1 = JsonUtils.conveterObject(routeRes.getData(), Route.class);
-            TravelServiceImpl.LOGGER.info("Route is: {}", route1.toString());
-        }
-        return route1;
+        return routeCache.getOrInsert(routeId, headers);
     }
 
-    private int getRestTicketNumber(Date travelDate, String trainNumber, String startStationName, String endStationName, int seatType, HttpHeaders headers) {
+    private int getRestTicketNumber(Date travelDate, String trainNumber, String startStationName, String endStationName,
+            int seatType, HttpHeaders headers) {
         Seat seatRequest = new Seat();
 
         String fromId = queryForStationId(startStationName, headers);
@@ -364,16 +423,10 @@ public class TravelServiceImpl implements TravelService {
 
         TravelServiceImpl.LOGGER.info("Seat request To String: {}", seatRequest.toString());
 
-        HttpEntity requestEntity = new HttpEntity(seatRequest, headers);
-        ResponseEntity<Response<Integer>> re = restTemplate.exchange(
-                "http://ts-seat-service:18898/api/v1/seatservice/seats/left_tickets",
-                HttpMethod.POST,
-                requestEntity,
-                new ParameterizedTypeReference<Response<Integer>>() {
-                });
-        TravelServiceImpl.LOGGER.info("Get Rest tickets num is: {}", re.getBody().toString());
+        Response<Integer> re = restTicketCache.getOrInsert(seatRequest, headers);
+        TravelServiceImpl.LOGGER.info("Get Rest tickets num is: {}", re.toString());
 
-        return re.getBody().getData();
+        return re.getData();
     }
 
     @Override

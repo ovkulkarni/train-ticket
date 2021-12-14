@@ -13,7 +13,7 @@ class NormalUser(HttpUser):
     ip_map, port_map = get_ip_map('3a4205d9a390')
 
     def on_start(self):
-        username = 'fdse_microservice'
+        username = 'fdse_microservice' + str(random.randrange(10))
         password = '111111'
         self.login(username, password)
 
@@ -69,7 +69,7 @@ class NormalUser(HttpUser):
     def get_a_trip_between_stations(self, start, end, trip_date):
         ret_trip = {}
         if random.choice([0, 1]) == 0:
-            response = requests.post(self.get_addr('route-plan-service', "/api/v1/routeplanservice/routePlan/" +
+            response = self.client.post(self.get_addr('route-plan-service', "/api/v1/routeplanservice/routePlan/" +
                                                    random.choice(['cheapestRoute', 'quickestRoute', 'minStopStations'])),
                                      json = {
                                          "formStationName": start,
@@ -84,7 +84,7 @@ class NormalUser(HttpUser):
             ret_trip['startingStation'] = trip['fromStationName']
             ret_trip['terminalStation'] = trip['toStationName']
         else:
-            response = requests.post(self.get_addr('travel-service', "/api/v1/travelservice/trips/left"),
+            response = self.client.post(self.get_addr('travel-service', "/api/v1/travelservice/trips/left"),
                                      json = {
                                          "startingPlace": start,
                                          "endPlace": end,
@@ -224,7 +224,7 @@ class NormalUser(HttpUser):
 class AdminUser(HttpUser):
     weight = 1
     host = "https://pratikfegade.github.io"
-    weight = 100
+    # weight = 100
     wait_time = between(1, 2.5)
 
     ip_map, port_map = get_ip_map('3a4205d9a390')
@@ -338,7 +338,7 @@ class AdminUser(HttpUser):
 
     @task
     def add_random_station(self):
-        id = uuid.uuid4()
+        id = str(uuid.uuid4())
         station = {
             "id": id,
             "name": "name" + id,

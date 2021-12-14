@@ -73,7 +73,7 @@ class DataGenerator(UserBase):
         self.login()
 
         foods = []
-        for i in len(num_foods):
+        for i in range(num_foods):
             foods.append({
                 "foodName": "food_name" + str(i),
                 "price": random.randint(10, 100) * 1.0
@@ -85,7 +85,7 @@ class DataGenerator(UserBase):
                                      json = station, headers=self.auth_headers())
             print(response)
 
-            fid = uuid.uuid4()
+            fid = str(uuid.uuid4())
             foodstore = {
                 "id": fid,
                 "stationId": station['id'],
@@ -110,7 +110,7 @@ class DataGenerator(UserBase):
             print(response)
 
             train_food = {
-                "id": uuid.uuid4(),
+                "id": str(uuid.uuid4()),
                 "tripId": trip['tripId'],
                 "foodList": random.sample(foods, random.randint(1, len(foods) - 1))
             }
